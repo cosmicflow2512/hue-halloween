@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hue Halloween</title>
+<style>
+  :root { --bg:#0e0b12; --card:#1a1520; --fg:#ece6f2; --mut:#9a8fa8; --acc:#ff7a1a; --ok:#5fd18b; --err:#ff5c6c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui,-apple-system,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:16px; }
+  h1 { font-size:22px; margin:8px 0 16px; }
+  h2 { font-size:15px; margin:0 0 10px; color:var(--mut); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:14px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+  label { min-width:120px; color:var(--mut); }
+  input, select { background:#0e0b12; color:var(--fg); border:1px solid #352c40; border-radius:8px; padding:8px; font:inherit; flex:1; min-width:0; }
+  button { background:#2b2236; color:var(--fg); border:0; border-radius:8px; padding:9px 14px; font:inherit; cursor:pointer; }
+  button.primary { background:var(--acc); color:#160a00; font-weight:600; }
+  button:disabled { opacity:.5; }
+  .show { display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-top:1px solid #2a2232; gap:8px; }
+  .show:first-of-type { border-top:0; }
+  .mut { color:var(--mut); font-size:13px; }
+  #status { font-size:14px; }
+  .err { color:var(--err); } .ok { color:var(--ok); }
+  input[type=range] { padding:0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Hue Halloween</h1>
+
+  <div class="card"><h2>Status</h2><div id="status">lädt…</div></div>
+
+  <div class="card">
+    <h2>Halloween-Abend (Endlos)</h2>
+    <p class="mut">Spielt alle Halloween-Sets im Wechsel, bis du stoppst. Eigene Auto-Shows lassen sich unten mit anhaken.</p>
+    <div class="row"><button class="primary" onclick="startLoop()">Abend starten</button><button onclick="stopShow()">Stop</button>
+      <label style="min-width:auto"><input type="checkbox" id="shuffle" checked> zufällige Reihenfolge</label></div>
+  </div>
+
+  <div class="card">
+    <h2>Halloween-Sets</h2>
+    <div id="sets"></div>
+  </div>
+
+  <div class="card">
+    <h2>Eigene Musik</h2>
+    <div id="own"></div>
+    <div class="row"><input type="file" id="files" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple>
+      <button onclick="upload()">Hochladen + Lichtshow erzeugen</button></div>
+    <p class="mut">Oder Dateien direkt nach <code>appdata/hue-halloween/shows/</code> kopieren und <a href="#" onclick="rescan();return false">neu scannen</a>.</p>
+  </div>
+
+  <div class="card">
+    <h2>Test</h2>
+    <div id="tests"></div>
+    <div class="row"><label style="min-width:auto"><input type="checkbox" id="noaudio"> nur Licht (ohne Sound)</label></div>
+  </div>
+
+  <div class="card">
+    <h2>Sync</h2>
+    <div class="row"><label>Offset</label><input type="range" id="offset" min="-1000" max="4000" step="10" oninput="offsetChanged()"><span id="offv" style="min-width:70px;text-align:right"></span></div>
+    <p class="mut">Positiv = Licht startet später (Sound kommt verzögert an). Wirkt live – Kalibrier-Show starten und schieben, bis Piep und Flash zusammenfallen.</p>
+    <div class="row"><label>Helligkeit</label><input type="range" id="bri" min="0.1" max="1" step="0.05" onchange="save({brightness:+this.value})"></div>
+  </div>
+
+  <div class="card">
+    <h2>Einstellungen</h2>
+    <div class="row"><label>Hue Bridge IP</label><input id="host" placeholder="leer = automatisch suchen"></div>
+    <div class="row"><button onclick="pair()">Koppeln</button><span class="mut">vorher Link-Taste an der Bridge drücken</span></div>
+    <div class="row"><label>Entertainment</label><select id="area" onchange="save({area_id:this.value})"></select></div>
+    <div class="row"><label>Media-Player</label><input id="mp" placeholder="media_player.wohnzimmer" onchange="save({media_player:this.value.trim()})"></div>
+    <div class="row"><label>Wiedergabe</label><select id="pm" onchange="save({play_mode:this.value})">
+      <option value="announce">MA-Durchsage (pausiert/setzt fort)</option>
+      <option value="media">media_player.play_media</option></select></div>
+    <div class="row"><label>Lautstärke</label><input id="vol" type="number" min="0" max="1" step="0.05" placeholder="leer = unverändert" onchange="save({volume:this.value===''?null:+this.value})"></div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let offTimer = null, loaded = false, wasBusy = false;
+
+async function api(path, opts={}) {
+  const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts});
+  const j = await r.json().catch(()=>({ok:false,error:'HTTP '+r.status}));
+  if (!j.ok) throw new Error(j.error || 'Fehler');
+  return j;
+}
+function msg(t, cls='') { $('status').innerHTML = `<span class="${cls}">${t}</span>`; }
+
+async function refresh() {
+  try {
+    const s = await api('/api/status');
+    const st = s.settings;
+    if (!loaded) {
+      $('host').value = st.hue_host || '';
+      $('mp').value = st.media_player || '';
+      $('vol').value = st.volume ?? '';
+      $('pm').value = st.play_mode || 'announce';
+      $('offset').value = st.offset_ms; $('offv').textContent = st.offset_ms + ' ms';
+      $('bri').value = st.brightness;
+      loaded = true;
+      if (st.paired) loadAreas(st.area_id);
+    }
+    const parts = [];
+    parts.push(st.paired ? `<span class="ok">Hue gekoppelt</span> (${st.hue_host})` : `<span class="err">Hue nicht gekoppelt</span>`);
+    parts.push(s.ha ? '<span class="ok">HA verbunden</span>' : '<span class="err">HA_URL/HA_TOKEN fehlen</span>');
+    if (!s.public_url) parts.push('<span class="err">PUBLIC_URL fehlt</span>');
+    if (s.loop) parts.push(`<span class="ok">Endlos-Modus (${s.loop.ids.length} Shows)</span>`);
+    if (s.playing) parts.push(`▶ <b>${esc(s.playing)}</b> bei ${s.show_time.toFixed(1)} s`);
+    if (s.busy) { parts.push(`<span class="mut">${esc(s.busy)}</span>`); wasBusy = true; }
+    else if (wasBusy) { wasBusy = false; loadShows(); }
+    if (s.error) parts.push(`<span class="err">${esc(s.error)}</span>`);
+    $('status').innerHTML = parts.join(' · ');
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+const fmt = d => d ? `${Math.floor(d/60)}:${String(Math.round(d%60)).padStart(2,'0')} min` : '';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function row(s, check) {
+  return `<div class="show"><div>${check ? `<input type="checkbox" class="inloop" value="${esc(s.id)}"> ` : ''}<b>${esc(s.name)}</b>
+    <div class="mut">${esc(s.description || s.id)}${s.duration ? ' · ' + fmt(s.duration) : ''}</div></div>
+    <button class="primary" onclick="play('${esc(s.id)}')">Start</button></div>`;
+}
+async function loadShows() {
+  const {shows} = await api('/api/shows');
+  const sets = shows.filter(s => s.id.startsWith('set'));
+  const own = shows.filter(s => s.auto || (!s.id.startsWith('set') && !['kalibrierung','gewitter_test'].includes(s.id)));
+  const tests = shows.filter(s => ['kalibrierung','gewitter_test'].includes(s.id));
+  $('sets').innerHTML = sets.map(s => row(s)).join('') || '<p class="mut">Werden beim ersten Start erzeugt…</p>';
+  $('own').innerHTML = own.map(s => row(s, true)).join('') || '<p class="mut">Noch keine eigenen Dateien</p>';
+  $('tests').innerHTML = tests.map(s => row(s)).join('');
+}
+async function startLoop() {
+  const extra = [...document.querySelectorAll('.inloop:checked')].map(c => c.value);
+  const {shows} = await api('/api/shows');
+  const ids = shows.filter(s => s.id.startsWith('set')).map(s => s.id).concat(extra);
+  try { await api('/api/loop', {method:'POST', body:JSON.stringify({ids, shuffle:$('shuffle').checked})}); refresh(); }
+  catch (e) { msg(e.message, 'err'); }
+}
+async function upload() {
+  const fs = $('files').files;
+  if (!fs.length) return;
+  const fd = new FormData();
+  for (const f of fs) fd.append('file', f, f.name);
+  msg('Lade hoch und analysiere…');
+  try {
+    const r = await fetch('/api/upload', {method:'POST', body:fd}); const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    $('files').value = ''; await loadShows(); refresh();
+  } catch (e) { msg(e.message, 'err'); }
+}
+async function rescan() { msg('Scanne…'); try { await api('/api/rescan', {method:'POST'}); await loadShows(); refresh(); } catch (e) { msg(e.message,'err'); } }
+
+async function loadAreas(sel) {
+  try {
+    const {areas} = await api('/api/areas');
+    $('area').innerHTML = areas.map(a => `<option value="${a.id}">${a.name} (${a.channels.length} Lampen)</option>`).join('');
+    if (sel) $('area').value = sel; else if (areas[0]) save({area_id: areas[0].id});
+  } catch (e) { msg(e.message, 'err'); }
+}
+
+async function play(id) {
+  try { await api(`/api/play/${id}?audio=${$('noaudio').checked ? 0 : 1}`, {method:'POST'}); refresh(); }
+  catch (e) { msg(e.message, 'err'); }
+}
+async function stopShow() { await api('/api/stop', {method:'POST'}); refresh(); }
+async function save(obj) { try { await api('/api/settings', {method:'POST', body:JSON.stringify(obj)}); } catch (e) { msg(e.message,'err'); } }
+function offsetChanged() {
+  $('offv').textContent = $('offset').value + ' ms';
+  clearTimeout(offTimer); offTimer = setTimeout(() => save({offset_ms:+$('offset').value}), 150);
+}
+async function pair() {
+  msg('Koppeln… Link-Taste drücken (bis 30 s)');
+  try { await api('/api/pair', {method:'POST', body:JSON.stringify({host:$('host').value.trim()})}); loaded=false; await refresh(); }
+  catch (e) { msg(e.message, 'err'); }
+}
+
+loadShows(); refresh(); setInterval(refresh, 1000);
+</script>
+</body>
+</html>

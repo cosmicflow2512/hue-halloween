@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>hue-halloween</Name>
+  <Repository>ghcr.io/cosmicflow2512/hue-halloween:latest</Repository>
+  <Registry>https://github.com/cosmicflow2512/hue-halloween/pkgs/container/hue-halloween</Registry>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/cosmicflow2512/hue-halloween/issues</Support>
+  <Project>https://github.com/cosmicflow2512/hue-halloween</Project>
+  <Overview>Halloween light and sound shows for Philips Hue (Entertainment API, ~50 fps) with audio on Sonos or any other Music Assistant player via Home Assistant.
+
+Ships four generated Halloween sets (haunted house, graveyard at midnight, witches' cauldron, storm night) whose lights follow the music and sound effects exactly, an endless "Halloween evening" mode, and an automatic light show generator for your own audio files.
+
+Setup: open the WebUI, press the link button on the Hue bridge, click "Koppeln", pick the entertainment area, run the calibration show and adjust the offset until beep and flash match.
+
+Network must be host (mDNS bridge discovery, and Music Assistant has to fetch the audio from this container). The sets are generated once on first start (1-2 minutes, ~1.5 GB RAM peak).</Overview>
+  <Category>HomeAutomation MediaServer:Music</Category>
+  <WebUI>http://[IP]:8099/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/cosmicflow2512/hue-halloween/main/hue-halloween.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/cosmicflow2512/hue-halloween/main/assets/icon.png</Icon>
+  <ExtraParams>--restart unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Philips Hue bridge (V2 or Pro) with an entertainment area of colour lights, Home Assistant with the Music Assistant integration.</Requires>
+  <Config Name="Config Directory" Target="/config" Default="/mnt/cache/appdata/hue-halloween/config" Mode="rw" Description="Hue pairing keys and UI settings (settings.json)." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/hue-halloween/config</Config>
+  <Config Name="Shows Directory" Target="/shows" Default="/mnt/cache/appdata/hue-halloween/shows" Mode="rw" Description="Generated sets and your own shows. Drop audio files here and press 'neu scannen' in the UI to get an automatic light show." Type="Path" Display="always" Required="true" Mask="false">/mnt/cache/appdata/hue-halloween/shows</Config>
+  <Config Name="Home Assistant URL" Target="HA_URL" Default="http://192.168.0.10:8123" Mode="" Description="Base URL of Home Assistant as reachable from this container." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Home Assistant Token" Target="HA_TOKEN" Default="" Mode="" Description="Long-lived access token (HA profile -> Security)." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Media Player" Target="MEDIA_PLAYER" Default="media_player.wohnzimmer" Mode="" Description="Music Assistant media_player entity that plays the sound. Can be changed in the UI." Type="Variable" Display="always" Required="false" Mask="false">media_player.wohnzimmer</Config>
+  <Config Name="Playback Mode" Target="PLAY_MODE" Default="announce" Mode="" Description="announce = music_assistant.play_announcement (pauses and resumes what was playing), media = media_player.play_media. Can be changed in the UI." Type="Variable" Display="advanced" Required="false" Mask="false">announce</Config>
+  <Config Name="Hue Bridge IP" Target="HUE_HOST" Default="" Mode="" Description="Optional. Empty = discover via mDNS." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Public URL" Target="PUBLIC_URL" Default="" Mode="" Description="Optional. URL under which Music Assistant fetches the audio, e.g. http://192.168.0.20:8099. Empty = auto-detected server IP." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="WebUI Port" Target="PORT" Default="8099" Mode="" Description="Port of the WebUI and the audio server (host network). If changed, adjust the WebUI link." Type="Variable" Display="advanced" Required="false" Mask="false">8099</Config>
+  <Config Name="Timezone" Target="TZ" Default="Europe/Berlin" Mode="" Description="Container timezone" Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Berlin</Config>
+</Container>
